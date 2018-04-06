@@ -1,0 +1,143 @@
+import pandas as pd
+import numpy as np
+
+############### IMPORTING FILES ################
+train = pd.read_csv("train.csv")
+validation = pd.read_csv("validation.csv")
+################################################
+
+############## FEATURE ENGINEERING #############
+# Negative downsample to try and balance click/non-clicks better in the training data
+print("negative downsampling")
+from sklearn.utils import resample
+majority = train[train.click == 0]
+minority = train[train.click == 1]
+majorityResampled = resample(majority, replace=False, n_samples=400000, random_state=12)
+train = pd.concat([minority, majorityResampled])
+
+fullData = pd.concat([train, validation]).reset_index(drop=True)
+
+# Need to know for the index to split the validation/train data after feature engineering
+trainLength = len(train)
+del train
+del validation
+
+# Split useragent into os and broswer
+newData = pd.DataFrame(fullData.useragent.str.split('_').tolist(), columns=['os', 'browser'])
+fullData = pd.concat([fullData, newData], axis=1)
+
+# Columns not wanted for the CTR prediction
+columnsToDrop = ['bidid', 'userid', 'IP', 'url', 'urlid', 'slotid', 'keypage', 'bidprice',
+                 'payprice', 'domain', 'useragent']
+fullData = fullData.drop(columnsToDrop, axis=1)
+
+# Create dummy variables for these columns
+columnsForDummies = ['weekday', 'hour', 'city', 'region', 'slotwidth', 'slotheight', 'advertiser', 'creative',
+                     'slotprice', 'adexchange', 'slotformat', 'slotvisibility', 'os', 'browser']
+
+print("creating fullData dummmies")
+for i in columnsForDummies:
+    print("completing: " + i)
+    dummies = pd.get_dummies(fullData[i], prefix=i)
+    joined = pd.concat([fullData, dummies], axis=1)
+    fullData = joined.drop(i, axis=1)
+
+print("completing: usertag")
+fullData['usertag'].fillna(value="null", inplace=True)
+usertags = fullData.usertag.str.split(',').tolist()
+usertagDf = pd.DataFrame(usertags)
+usetags = 0
+usertagDummies = pd.get_dummies(usertagDf, prefix='usertag')
+usertagDf = 0
+usertagDummies = usertagDummies.groupby(usertagDummies.columns, axis=1).sum()
+fullData = pd.concat([fullData, usertagDummies], axis=1)
+fullData = fullData.drop('usertag', axis=1)
+print("finished dummies")
+usertagDummies = 0
+
+# Split the train and validation data
+train = fullData[0:trainLength]
+validation = fullData[trainLength:]
+fullData = 0
+
+# Split the features and target variable for training and validation sets
+print("X/y preparation")
+X_train = train.drop('click', axis=1)
+y_train = train['click']
+X_validation = validation.drop('click', axis=1)
+y_validation = validation['click']
+train = 0
+validation = 0
+################################################
+
+
+###### MODEL FITTING ###########################
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+
+from sklearn.ensemble import RandomForestClassifier
+# # random forest classifier
+leaves = [5, 20, 40]
+trees = [10, 50, 100]
+aucScores = []
+for leaf in leaves:
+    for tree in trees:
+        print("fitting random forest: " + str(leaf) + ", " + str(tree))
+        rfModel = RandomForestClassifier(n_estimators=tree, min_samples_leaf=leaf, n_jobs=-1, class_weight="balanced")
+        rfModel.fit(X_train, y_train)
+        predictions = rfModel.predict(X_validation)
+        aucScores.append([leaf, tree, roc_auc_score(y_validation, predictions)])
+        print("finished fitting")
+
+for score in aucScores:
+    print("n_estimators: " + str(score[1]) + "\tmin_samples_leaf: " + str(score[0]) + "\tAUC: " + str(score[2]))
+
+
+from sklearn.svm import LinearSVC
+# # linear support vector classifier
+strengths = [10, 1, 0.1, 0.01, 0.001, 0.0001]
+aucScores = []
+for strengthC in strengths:
+    svcModel = LinearSVC(class_weight="balanced", C=strengthC)
+    print("fitting linearSVC: " + str(strengthC))
+    svcModel.fit(X_train, y_train)
+    predictions = svcModel.predict(X_validation)
+    print("finished fitting")
+    aucScores.append([strengthC, roc_auc_score(y_validation, predictions)])
+
+for score in aucScores:
+    print("Strength: " + str(score[0]) +"\tAUC: " + str(score[1]))
+
+from sklearn.tree import DecisionTreeClassifier
+aucScores = []
+for chosen in [5,10,20]:
+    print("fitting decision tree: " + str(chosen))
+    treeModel = DecisionTreeClassifier(max_depth=chosen, class_weight="balanced")
+    treeModel.fit(X_train, y_train)
+    predictions = treeModel.predict(X_validation)
+    print("finished fitting")
+    aucScores.append([chosen, roc_auc_score(y_validation, predictions)])
+
+for score in aucScores:
+    print("max_depth: " + str(score[0]) +"\tAUC: " + str(score[1]))
+
+strengths = [10, 1, 0.1, 0.01, 0.001, 0.0001]
+aucScores = []
+for strengthC in strengths:
+    logisticModel = LogisticRegression(class_weight="balanced", C=strengthC)
+    print("fitting logistic regression: " + str(strengthC))
+    logisticModel.fit(X_train, y_train)
+    predictions = logisticModel.predict(X_validation)
+    print("finished fitting")
+    aucScores.append([strengthC, roc_auc_score(y_validation, predictions)])
+
+for score in aucScores:
+    print("Strength: " + str(score[0]) +"\tAUC: " + str(score[1]))
+
+print("fitting optimum logistic")
+logisticModel = LogisticRegression(class_weight="balanced", C=0.001)
+logisticModel.fit(X_train, y_train)
+prediction = logisticModel.predict(X_validation)
+predictionProba = logisticModel.predict_proba(X_validation)
+print("logistic auc score: " + str(roc_auc_score(y_validation, prediction)))
+print("finished fitting")

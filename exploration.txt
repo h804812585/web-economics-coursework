@@ -1,0 +1,50 @@
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# load the dataframe
+df = pd.read_csv("train.csv")
+
+# Summary statistics
+print("Train set summary statistics")
+print("Total Clicks: " + str(df['click'].sum()))
+print("Total Impressions: " + str(len(df)))
+print("CTR: " + str(df['click'].sum()/len(df)*100) + "%")
+
+print("Total Cost: " + str(df['payprice'].sum()/1000))
+print("Avg Cost per Impression: " + str(df['payprice'].sum()/1000/len(df)))
+print("Avg Cost per Thousand Impressions (CPM): " + str(df['payprice'].sum()/len(df)))
+print("Avg Cost per Click: " + str(df['payprice'].sum()/1000/df['click'].sum()))
+
+# Function for getting CTR according to any feature
+def ctrPerFeature(feature):
+    featureClicks = df.groupby(feature)['click'].sum().reset_index()
+    aggImps = df.groupby(feature)['click'].agg('count').reset_index()
+
+    featureClicks['CTR'] = ""
+    for index, row in featureClicks.iterrows():
+        ctr = (row['click'] / aggImps['click'][index]) * 100
+        featureClicks.loc[index, 'CTR'] = ctr
+
+    return featureClicks
+
+def graphFeature(feature):
+    featureCtr = ctrPerFeature(feature)
+    plt.plot(featureCtr[feature], featureCtr['CTR'])
+    plt.xlabel(str(feature))
+    plt.ylabel('CTR')
+    plt.show()
+
+# show average ctr by feature, select as needed
+graphFeature('weekday')
+graphFeature('hour')
+graphFeature('region')
+graphFeature('city')
+graphFeature('adexchange')
+graphFeature('creative')
+graphFeature('slotheight')
+graphFeature('slotwidth')
+graphFeature('slotprice')
+graphFeature('advertiser')
+graphFeature('slotvisibility')
+graphFeature('slotformat')
